@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>IM Göteborg - Hjälpmedel för volontärlista</title>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+    <meta content="utf-8" http-equiv="encoding" />
+    <script src="libs/surreal.js"></script>
+    <script src="libs/css-scope-inline.js"></script>
+    <script src="libs/papaparse.min.js"></script>
+    <script>
+      function createMailGroup(name, volontarlista_header) {
+        return {
+          name: name,
+          volontarlista_header: volontarlista_header,
+          from_volontarlista: { kanske: [], ja: [] },
+        };
+      }
+
+      function createHighlight(mail_group, email, volontar_name, error_fix) {
+        return {
+          Grupp: mail_group,
+          Email: email,
+          Volontär: volontar_name,
+          "Fel/Fix": error_fix,
+        };
+      }
+
+      window.mail_groups = [
+        createMailGroup("imgbg_laxhjalpgamlestaden", "LXHJ Gamlestaden"),
+        createMailGroup("imgbg_laxhjalpkortedala", "LXHJ Kortedala"),
+        createMailGroup("imgbg_laxhjalplundby", "LXHJ Lundby"),
+        createMailGroup("imgbg_talasvenskabrunnsbo", "TS Brunnsbo"),
+        createMailGroup(
+          "imgbg_talasvenskafolkuniversitetet",
+          "TS Folkuniversitetet"
+        ),
+        createMailGroup("imgbg_talasvenskavastrafrolunda", "TS Frölunda"),
+        createMailGroup("imgbg_talasvenskatynnered", "TS Tynnered"),
+        createMailGroup("imgbg_beachvolley", "Beachvolley"),
+        createMailGroup("imgbg_ivik", "Move It"),
+        createMailGroup("imgbg_transit", "Sagåsen"),
+        createMailGroup("imgbg_styrelsen", "Styrelsen"),
+      ];
+      window.auto_todo_list = [];
+      window.volontarlista_url =
+        "https://docs.google.com/spreadsheets/d/1XelCnAr8-BhZ-ul1tbcmp3tvpEu7yUX15VcpdUv6VQo/edit?usp=sharing";
+      window.volontar_arbetsblad = "Volontärer";
+      window.status_map = {
+        aktiv: "ja",
+        gruppmejl: "ja",
+        "paus m. mejl": "ja",
+        intresserad: "kanske",
+        besökt: "kanske",
+        borttagen: "nej",
+        mejladmin: "ja",
+        "paus u. mejl": "nej",
+        "": "nej",
+      };
+    </script>
+    <script>
+      function importVolontarlista(text) {
+        const header_start = text.search(/\nNamn/);
+        const trimmed_text = text.slice(header_start).trim();
+        window.parsed_volontarlista = Papa.parse(trimmed_text, {
+          header: true,
+        });
+      }
+
+      function importMailGroup(mail_group, text) {
+        const header_start = text.search(/\n/);
+        const trimmed_text = text.slice(header_start).trim();
+        mail_group.parsed = Papa.parse(trimmed_text, { header: true });
+        mail_group.emails = mail_group.parsed.data.map((row) => {
+          return row["E-postadress"].toLowerCase();
+        });
+        console.log(mail_group);
+      }
+
+      function padTime(time) {
+        if (time < 10) {
+          return "0" + time;
+        }
+        return "" + time;
+      }
+
+      function writeResults() {
+        window.auto_todo_list = [];
+        for (let mail_group of window.mail_groups) {
+          const header_field = mail_group.volontarlista_header;
+          const ja = (mail_group.from_volontarlista.ja = []);
+          const nej = (mail_group.from_volontarlista.nej = []);
+          const kanske = (mail_group.from_volontarlista.kanske = []);
+          for (let volontar of window.parsed_volontarlista.data) {
+            const status = volontar[header_field].trim();
+            const include_volontar = window.status_map[status];
+            if (include_volontar === "ja") {
+              ja.push(volontar);
+            } else if (include_volontar === "kanske") {
+              kanske.push(volontar);
+              window.auto_todo_list.push(
+                createHighlight(
+                  header_field,
+                  volontar.Mail.toLowerCase(),
+                  volontar.Namn,
+                  "Intresserad av att bli volontär. Följ upp och kontakta dem igen om ingen kontakt nyligen."
+                )
+              );
+            } else if (include_volontar === "nej") {
+              nej.push(volontar);
+            }
+          }
+
+          for (let ja_volontar of ja) {
+            let matched = false;
+            const volontar_email = ja_volontar.Mail.toLowerCase();
+
+            for (let email of mail_group.emails) {
+              if (volontar_email.includes(email)) {
+                matched = true;
+                break;
+              }
+            }
+
+            if (!matched) {
+              window.auto_todo_list.push(
+                createHighlight(
+                  header_field,
+                  volontar_email,
+                  ja_volontar.Namn,
+                  "Finns i volontärlistan men ej i mejlgruppen. Lägg till i mejlgruppen."
+                )
+              );
+            }
+          }
+
+          for (let email of mail_group.emails) {
+            let matched = false;
+
+            for (let ja_volontar of ja) {
+              const volontar_email = ja_volontar.Mail.toLowerCase();
+
+              if (volontar_email.includes(email)) {
+                matched = true;
+                break;
+              }
+            }
+
+            for (let kanske_volontar of kanske) {
+              const volontar_email = kanske_volontar.Mail.toLowerCase();
+
+              if (volontar_email.includes(email)) {
+                matched = true;
+                break;
+              }
+            }
+
+            if (!matched) {
+              let fel_fix =
+                "Finns i mejlgruppen men ej i volontärlistan. Ta bort från mejlgruppen.";
+              for (let nej_volontar of nej) {
+                const volontar_email = nej_volontar.Mail.toLowerCase();
+
+                if (volontar_email.includes(email)) {
+                  fel_fix = `Finns i mejlgruppen men status i volontärlistan är "${nej_volontar[header_field]}". Ta bort från mejlgruppen.`;
+                  break;
+                }
+              }
+              window.auto_todo_list.push(
+                createHighlight(header_field, email, "", fel_fix)
+              );
+            }
+          }
+        }
+
+        for (let volontar of window.parsed_volontarlista.data) {
+          if (
+            volontar["Nytt registerutdrag"] === "ja - registerutdrag saknas"
+          ) {
+            window.auto_todo_list.push(
+              createHighlight(
+                "",
+                volontar.Mail.toLowerCase(),
+                volontar.Namn,
+                "Registerutdrag krävs men det saknas / är för gammalt. Be om nytt registerutdrag."
+              )
+            );
+          }
+        }
+
+        window.auto_todo_list.sort((a, b) => {
+          return (
+            a["Fel/Fix"].localeCompare(b["Fel/Fix"]) ||
+            a.Grupp.localeCompare(b.Grupp) ||
+            a.Email.localeCompare(b.Email)
+          );
+        });
+
+        console.log(window.auto_todo_list);
+        auto_todo_list_blob = new Blob([Papa.unparse(window.auto_todo_list)], {
+          type: "text/csv",
+        });
+        const url = URL.createObjectURL(auto_todo_list_blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        const now = new Date();
+        const now_formatted = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${padTime(
+          now.getHours()
+        )}${padTime(now.getMinutes())}${padTime(now.getSeconds())}`;
+        const file_name = `automatisk-att-gora-lista-${now_formatted}.csv`;
+        anchor.download = file_name;
+        anchor.innerText = file_name;
+        me("#resultat").replaceChildren(anchor);
+      }
+
+      async function add_files(files) {
+        console.log("add_files", files);
+        for (let file of files) {
+          const text = await file.text();
+
+          if (
+            file.name
+              .toLowerCase()
+              .endsWith(` - ${window.volontar_arbetsblad.toLowerCase()}.csv`)
+          ) {
+            const volontarlista_status = me("#volontarlista_status");
+            volontarlista_status.innerText = "är importerad";
+            volontarlista_status.classRemove("is-not-ok");
+            volontarlista_status.classAdd("is-ok");
+            me("#volontarlista_instruktioner").style.opacity = "0.4";
+            importVolontarlista(text);
+          }
+
+          let all_complete = window.parsed_volontarlista != null;
+          for (let mail_group of window.mail_groups) {
+            if (
+              file.name.toLowerCase() === `${mail_group.name.toLowerCase()}.csv`
+            ) {
+              const group_status = me(`#${mail_group.name}_status`);
+              group_status.innerText = "är importerad";
+              group_status.classRemove("is-not-ok");
+              group_status.classAdd("is-ok");
+              me(`#${mail_group.name}_instruktioner`).style.opacity = "0.4";
+              importMailGroup(mail_group, text);
+            }
+            all_complete = all_complete && mail_group.parsed != null;
+          }
+          if (all_complete) {
+            writeResults();
+          }
+        }
+      }
+    </script>
+    <style>
+      .is-ok {
+        background-color: #c1e1c1;
+      }
+
+      .is-not-ok {
+        background-color: #e84b3d;
+        color: white;
+      }
+    </style>
+    <meta http-equiv="cache-control" content="no-cache" />
+  </head>
+
+  <body>
+    <style>
+      me {
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+      }
+    </style>
+    <div>
+      <script>
+        me().on("drop", (ev) => {
+          console.log("File(s) dropped");
+          me(ev).classRemove("is-dragover");
+
+          // Prevent default behavior (Prevent file from being opened)
+          ev.preventDefault();
+
+          const files = [];
+          [...ev.dataTransfer.items].forEach((item, i) => {
+            // If dropped items aren't files, reject them
+            if (item.kind === "file") {
+              const file = item.getAsFile();
+              files.push(file);
+            }
+          });
+          add_files(files);
+        });
+
+        me().on("dragover", (ev) => {
+          me(ev).classAdd("is-dragover");
+
+          ev.preventDefault();
+        });
+
+        me().on("dragleave", (ev) => {
+          me(ev).classRemove("is-dragover");
+
+          ev.preventDefault();
+        });
+      </script>
+      <style>
+        me {
+          border: 5px solid black;
+          height: 120px;
+          width: 50%;
+          min-width: 350px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          margin: 0 auto;
+        }
+
+        me.is-dragover {
+          background-color: #e0e0e0;
+        }
+
+        #file_input {
+          width: 0.1px;
+          height: 0.1px;
+          opacity: 0;
+          overflow: hidden;
+          position: absolute;
+          z-index: -1;
+        }
+      </style>
+      <input id="file_input" type="file" multiple />
+      <script>
+        me("-").on("change", (ev) => {
+          add_files(ev.target.files);
+        });
+      </script>
+      <label for="file_input"
+        ><strong>Klicka</strong> eller släpp filer här.</label
+      >
+    </div>
+    <div>
+      <style>
+        me {
+          width: 50%;
+          min-width: 350px;
+          display: flex;
+          align-items: start;
+          flex-direction: column;
+          margin: 0 auto;
+        }
+
+        me > * {
+          margin: 2pt;
+        }
+      </style>
+      <h2>Volontärlista</h2>
+      <p>
+        Volontärlistan
+        <strong id="volontarlista_status" class="is-not-ok">saknas</strong>.
+      </p>
+      <p id="volontarlista_instruktioner">
+        Gå till
+        <a
+          >Volontärlistan i Google Drive
+          <script>
+            me().href = window.volontarlista_url;
+          </script></a
+        >
+        och till fliken
+        <span
+          ><script>
+            me().innerText = window.volontar_arbetsblad;
+          </script></span
+        >. Välj Arkiv > Ladda ned > Kommaavgränsade värden (.csv).<br />
+        Lägg in filen här ovan. Filens namn slutar på
+        <span
+          ><script>
+            me().innerText = ` - ${window.volontar_arbetsblad}.csv`;
+          </script></span
+        >
+      </p>
+      <h2>Medlemslistor</h2>
+      <p>Vilka medlemslistor är importerade?</p>
+      <ul>
+        <style>
+          me * {
+            margin: 0pt 2pt 0pt 2pt;
+          }
+        </style>
+        <script>
+          window.mail_groups.forEach((item) => {
+            const li = createElement("li");
+            const p = createElement("p");
+            const strong_status = me(createElement("strong"));
+            strong_status.id = `${item.name}_status`;
+            strong_status.innerText = "saknas";
+            strong_status.classAdd("is-not-ok");
+            const span_instruktioner = createElement("span");
+            span_instruktioner.id = `${item.name}_instruktioner`;
+            p.appendChild(document.createTextNode(`${item.name} `));
+            p.appendChild(strong_status);
+            p.appendChild(document.createTextNode("."));
+            p.appendChild(span_instruktioner);
+            span_instruktioner.innerText = ` Lägg in filen ${item.name}.csv här ovan. `;
+            li.appendChild(p);
+            me().appendChild(li);
+          });
+        </script>
+      </ul>
+      <p>
+        Exportera medlemslistor från Google Groups genom att trycka på
+        <b>Exportera lista</b> på dessa länkar:
+      </p>
+      <ul>
+        <script>
+          window.mail_groups.forEach((item) => {
+            const li = createElement("li");
+            const a = createElement("a");
+            a.innerText = item.name;
+            a.href = `https://groups.google.com/g/${item.name}/members`;
+            li.appendChild(a);
+            me().appendChild(li);
+          });
+        </script>
+      </ul>
+      <h2>Resultat</h2>
+      <div id="resultat">
+        <p>Inga resultat än. Lägg till de filer som saknas.</p>
+      </div>
+    </div>
+  </body>
+</html>

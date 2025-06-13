@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>IM Göteborg Visma printer</title>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+    <meta content="utf-8" http-equiv="encoding" />
+    <script src="libs/surreal.js"></script>
+    <script src="libs/css-scope-inline.js"></script>
+    <script src="libs/dayjs.min.js"></script>
+    <script src="libs/dayjs_customParseFormat.js"></script>
+    <script src="libs/papaparse.min.js"></script>
+    <script>
+      dayjs.extend(window.dayjs_plugin_customParseFormat);
+    </script>
+    <script>
+      function detect_report_type(file_text, file_lines) {
+        if (file_lines.length === 0) {
+          return "tom fil";
+        }
+        if (file_lines[0].match(/balansräkning/i)) {
+          return "balansräkning";
+        }
+        if (file_lines[0].match(/projektresultat/i)) {
+          return "projektresultat";
+        }
+        if (file_lines[0].match(/verifikationslista/i)) {
+          return "verifikationslista";
+        }
+        return "okänd filtyp";
+      }
+
+      function calculate_balans(name, text, lines) {
+        const balans = {
+          name: name,
+          title: lines[0].trim(),
+          organisation_name: lines[1].trim(),
+          organisation_number: lines[2].trim(),
+          items: [],
+        };
+
+        let state = "GET_PERIOD";
+        const items = balans.items;
+        let item = {};
+
+        for (let i = 3; i < lines.length; i++) {
+          const line = lines[i];
+          if (state === "GET_PERIOD") {
+            const period = line.match(
+              /^Avser perioden (\d\d\d\d-\d\d-\d\d)\s+-\s+(\d\d\d\d-\d\d-\d\d)\s*$/
+            );
+            if (period !== null) {
+              balans.period = {
+                start: period[1],
+                end: period[2],
+              };
+              state = "GET_RESULTATENHET";
+              console.log("GET_PERIOD", item);
+            }
+          } else if (state === "GET_RESULTATENHET") {
+            const resultatenhet = line.match(/^Resultatenhet:\s+(.+)\s*$/);
+            if (resultatenhet !== null) {
+              item.resultatenhet = resultatenhet[1];
+              console.log("GET_RESULTATENHET", resultatenhet[1]);
+              state = "GET_RESULTAT";
+            }
+          } else if (state === "GET_RESULTAT") {
+            const resultat = line.match(
+              /^BERÄKNAT RESULTAT;([^;]*);([^;]*);([^;]*);\s*$/
+            );
+            if (resultat !== null) {
+              const start = resultat[1];
+              const change = resultat[2];
+              const end = resultat[3];
+              item.resultat = {
+                start: start,
+                change: change,
+                end: end,
+              };
+              state = "GET_RESULTATENHET";
+              console.log("ITEM:", item);
+              items.push(item);
+              item = {};
+            }
+          }
+        }
+
+        return balans;
+      }
+
+      function calculate_projektresultat(name, text, lines) {
+        const parsed = Papa.parse(text, {
+          delimiter: ";",
+        });
+        const data = parsed.data;
+        console.log(parsed);
+        const projektresultat = {
+          name: name,
+          title: data[0][0].trim(),
+          organisation_name: data[1][0].trim(),
+          organisation_number: data[2][0].trim(),
+          items: [],
+        };
+
+        let state = "GET_PERIOD";
+        const items = projektresultat.items;
+        let item = {};
+
+        for (let i = 3; i < data.length; i++) {
+          const row = data[i];
+          if (state === "GET_PERIOD") {
+            const period = row[0].match(
+              /^Avser perioden: ([\d/-]+)\s+-\s+([\d/-]+)\s*$/
+            );
+            console.log(row, period);
+            if (period !== null) {
+              projektresultat.period = {
+                start: dayjs(period[1], ["YYYY-MM-DD", "DD/MM/YYYY"]),
+                end: dayjs(period[2], ["YYYY-MM-DD", "DD/MM/YYYY"]),
+              };
+              state = "GET_PROJEKT";
+              console.log("GET_PERIOD", item);
+            }
+          } else if (state === "GET_PROJEKT") {
+            if (row[0].startsWith("Projektperiod:")) {
+              const next_row = data[i + 1];
+              const projekt = next_row[0].match(/^\d\d ([^(]+) \(/);
+              item.projekt = projekt[1];
+              console.log("GET_PROJEKT", item.projekt);
+              state = "GET_RESULTAT";
+              i++;
+            }
+          } else if (state === "GET_RESULTAT") {
+            if (row[0] === "BERÄKNAT RESULTAT") {
+              const for_period = row[1];
+              const accumulated = row[2];
+              const accumulated_from_period_start = row[3];
+              item.resultat = {
+                for_period: for_period,
+                accumulated: accumulated,
+                accumulated_from_period_start: accumulated_from_period_start,
+              };
+              state = "GET_PROJEKT";
+              console.log("ITEM:", item);
+              items.push(item);
+              item = {};
+            }
+          }
+        }
+
+        items.sort((a, b) => a.projekt.localeCompare(b.projekt));
+
+        return projektresultat;
+      }
+
+      function calculate_verifikation(name, text, lines) {
+        const verifikation = {
+          name: name,
+          title: lines[0].match(/^"""(.+)"""[,\s]*$/)[1],
+          organisation_name: lines[1].match(/^(.+)[,\s]+$/)[1],
+          organisation_number: lines[2].match(/^(.+)[,\s]+$/)[1],
+          lines: [],
+        };
+
+        console.log("lines", lines);
+        for (let i = 3; i < lines.length; i++) {
+          const line = lines[i];
+          const period = line.match(
+            /^"""Avser perioden"" (\d\d\d\d-\d\d-\d\d)\s+-\s+(\d\d\d\d-\d\d-\d\d)"[,\s]*$/
+          );
+          if (period !== null) {
+            verifikation.period = {
+              start: period[1],
+              end: period[2],
+            };
+            verifikation.lines = lines.slice(i);
+            console.log("Returning verifikation", i, verifikation);
+            return verifikation;
+          }
+        }
+
+        return verifikation;
+      }
+
+      function balans_base_filename(balans) {
+        const period = balans.period;
+        if (period.start.endsWith("-01-01")) {
+          return `${period.end}-balansräkning`;
+        } else {
+          return `${period.end}-balansräkning-sedan-${period.start}`;
+        }
+      }
+
+      function projektresultat_base_filename(projektresultat) {
+        const period = projektresultat.period;
+        const format = "YYYY-MM-DD";
+        const end = period.end.format(format);
+        const start = period.start.format(format);
+        if (start.endsWith("-01-01")) {
+          return `${end}-projektresultat`;
+        } else {
+          return `${end}-projektresultat-sedan-${start}`;
+        }
+      }
+
+      function verifikation_base_filename(verifikation) {
+        const period = verifikation.period;
+        if (period.start.endsWith("-01-01")) {
+          return `${period.end}-verifikationslista`;
+        } else {
+          return `${period.end}-verifikationslista-sedan-${period.start}`;
+        }
+      }
+
+      function balans_to_csv(balans) {
+        const csv_balans = {
+          filename: `${balans_base_filename(balans)}.csv`,
+          rows: [],
+        };
+
+        const rows = csv_balans.rows;
+
+        rows.push("Period,Resultatenhet,Början,Ändring,Slut\n");
+
+        for (let item of balans.items) {
+          const period = balans.period;
+          const period_formatted = `${period.start} - ${period.end}`;
+          const resultatenhet = item.resultatenhet;
+          const resultat = item.resultat;
+          const start = `"${resultat.start}"`;
+          const change = `"${resultat.change}"`;
+          const end = `"${resultat.end}"`;
+          rows.push(
+            [period_formatted, resultatenhet, start, change, end].join(",") +
+              "\n"
+          );
+        }
+
+        csv_balans.blob = new Blob(rows, { type: "text/csv" });
+
+        return csv_balans;
+      }
+
+      function projektresultat_to_csv(projektresultat) {
+        const csv_projektresultat = {
+          filename: `${projektresultat_base_filename(projektresultat)}.csv`,
+          rows: [],
+        };
+
+        const rows = csv_projektresultat.rows;
+
+        rows.push("Period,Projekt,För perioden,För året\n");
+
+        const period = projektresultat.period;
+        const format = "YYYY-MM-DD";
+        const period_end = period.end.format(format);
+        const period_start = period.start.format(format);
+        const period_formatted = `${period_start} - ${period_end}`;
+
+        for (let item of projektresultat.items) {
+          const projekt = item.projekt;
+          const resultat = item.resultat;
+          const for_period = `"${resultat.for_period}"`;
+          const accumulated = `"${resultat.accumulated}"`;
+          rows.push(
+            [period_formatted, projekt, for_period, accumulated].join(",") +
+              "\n"
+          );
+        }
+
+        csv_projektresultat.blob = new Blob(rows, { type: "text/csv" });
+
+        return csv_projektresultat;
+      }
+
+      function verifikation_to_csv(verifikation) {
+        const csv_verifikation = {
+          filename: `${verifikation_base_filename(verifikation)}.csv`,
+          rows: verifikation.lines,
+        };
+
+        csv_verifikation.blob = new Blob(csv_verifikation.rows, {
+          type: "text/csv",
+        });
+
+        return csv_verifikation;
+      }
+
+      function create_balans_elem(name, text, lines) {
+        if (lines.length < 3) {
+          const p = document.createElement("p");
+          p.innerText = `För få rader (${lines} rader) i balansräkningsfilen ${name}.`;
+          return p;
+        }
+        const balans = calculate_balans(name, text, lines);
+        const csv_balans = balans_to_csv(balans);
+
+        console.log("balans", balans);
+        console.log("csv", csv_balans);
+
+        const url = URL.createObjectURL(csv_balans.blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = csv_balans.filename;
+        anchor.innerText = csv_balans.filename;
+
+        return anchor;
+      }
+
+      function create_resultat_elem(name, text, lines) {
+        if (lines.length < 3) {
+          const p = document.createElement("p");
+          p.innerText = `För få rader (${lines} rader) i projektresultatfilen ${name}.`;
+          return p;
+        }
+        const projektresultat = calculate_projektresultat(name, text, lines);
+        const csv_projektresultat = projektresultat_to_csv(projektresultat);
+
+        const url = URL.createObjectURL(csv_projektresultat.blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = csv_projektresultat.filename;
+        anchor.innerText = csv_projektresultat.filename;
+
+        return anchor;
+      }
+
+      function create_verifikation_elem(name, text, lines) {
+        if (lines.length < 3) {
+          const p = document.createElement("p");
+          p.innerText = `För få rader (${lines} rader) i verifikationslistan ${name}.`;
+          return p;
+        }
+        const verifikation = calculate_verifikation(name, text, lines);
+        const csv_verifikation = verifikation_to_csv(verifikation);
+
+        const url = URL.createObjectURL(csv_verifikation.blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = csv_verifikation.filename;
+        anchor.innerText = csv_verifikation.filename;
+
+        return anchor;
+      }
+
+      async function add_files(files) {
+        console.log("add_files", files);
+        for (let file of files) {
+          const text = await file.text();
+          const lines = text.split("\n");
+          const report_type = detect_report_type(text, lines);
+          let elem;
+          if (report_type === "balansräkning") {
+            elem = create_balans_elem(file.name, text, lines);
+          } else if (report_type === "projektresultat") {
+            elem = create_resultat_elem(file.name, text, lines);
+          } else if (report_type === "verifikationslista") {
+            elem = create_verifikation_elem(file.name, text, lines);
+          } else {
+            elem = createElement("p");
+            elem.innerText = file.name + " är en " + report_type + ".";
+          }
+          const li = document.createElement("li");
+          li.appendChild(elem);
+          me("#file_output").appendChild(li);
+        }
+      }
+    </script>
+    <meta http-equiv="cache-control" content="no-cache" />
+  </head>
+
+  <body>
+    <style>
+      me {
+        display: flex;
+        justify-content: center;
+        flex-direction: column;
+      }
+    </style>
+    <div>
+      <script>
+        me().on("drop", (ev) => {
+          console.log("File(s) dropped");
+          me(ev).classRemove("is-dragover");
+
+          // Prevent default behavior (Prevent file from being opened)
+          ev.preventDefault();
+
+          const files = [];
+          [...ev.dataTransfer.items].forEach((item, i) => {
+            // If dropped items aren't files, reject them
+            if (item.kind === "file") {
+              const file = item.getAsFile();
+              files.push(file);
+            }
+          });
+          add_files(files);
+        });
+
+        me().on("dragover", (ev) => {
+          me(ev).classAdd("is-dragover");
+
+          ev.preventDefault();
+        });
+
+        me().on("dragleave", (ev) => {
+          me(ev).classRemove("is-dragover");
+
+          ev.preventDefault();
+        });
+      </script>
+      <style>
+        me {
+          border: 5px solid black;
+          height: 120px;
+          width: 50%;
+          min-width: 350px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          margin: 0 auto;
+        }
+
+        me.is-dragover {
+          background-color: #e0e0e0;
+        }
+
+        #file_input {
+          width: 0.1px;
+          height: 0.1px;
+          opacity: 0;
+          overflow: hidden;
+          position: absolute;
+          z-index: -1;
+        }
+      </style>
+      <input id="file_input" type="file" multiple />
+      <script>
+        me("-").on("change", (ev) => {
+          add_files(ev.target.files);
+        });
+      </script>
+      <label for="file_input"
+        ><strong>Klicka</strong> eller släpp balansräkningar / projektresultat /
+        verifikationslista</label
+      >
+    </div>
+    <div>
+      <style>
+        me {
+          width: 50%;
+          min-width: 350px;
+          display: flex;
+          align-items: start;
+          flex-direction: column;
+          margin: 0 auto;
+        }
+
+        me > * {
+          margin: 2pt;
+        }
+      </style>
+      <p>
+        Generera
+        <a href="https://eaccounting.vismaonline.com/#/accounting/reports"
+          >rapporter i Visma</a
+        >:
+      </p>
+      <ul>
+        <li>
+          Balansräkning:
+          <ol>
+            <li>
+              Bokföringsdatum: Välj period. Vanligtvis senaste styrelsemöte till
+              dagens datum.
+            </li>
+            <li>Resultatenhet: Välj alla.</li>
+            <li>Projekt: Gör inget val.</li>
+            <li>Skapa csv (Excel)</li>
+          </ol>
+        </li>
+        <li>
+          Projektresultat:
+          <ol>
+            <li>
+              Bokföringsdatum: Välj period. Vanligtvis senaste styrelsemöte till
+              dagens datum.
+            </li>
+            <li>Projekt: Välj alla.</li>
+            <li>Skapa csv (Excel)</li>
+          </ol>
+        </li>
+        <li>
+          Verifikationslista:
+          <ol>
+            <li>
+              Bokföringsdatum: Välj period. Vanligtvis senaste styrelsemöte till
+              dagens datum.
+            </li>
+            <li>Projekt: Gör inget val.</li>
+            <li>Skapa csv (Google Kalkylark)</li>
+          </ol>
+        </li>
+      </ul>
+    </div>
+    <hr color="grey" width="50%" />
+    <ol id="file_output">
+      <style>
+        me {
+          width: 50%;
+          min-width: 350px;
+          margin: 0 auto;
+        }
+      </style>
+    </ol>
+  </body>
+</html>
