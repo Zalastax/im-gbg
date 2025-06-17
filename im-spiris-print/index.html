@@ -2,8 +2,7 @@
 <html>
   <head>
     <title>IM Göteborg Visma printer</title>
-    <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
-    <meta content="utf-8" http-equiv="encoding" />
+    <meta charset="UTF-8" />
     <script src="libs/surreal.js"></script>
     <script src="libs/css-scope-inline.js"></script>
     <script src="libs/dayjs.min.js"></script>
@@ -30,11 +29,20 @@
       }
 
       function calculate_balans(name, text, lines) {
+        let delimiter = ";";
+        if (text.includes("SUMMA TILLGÅNGAR,")) {
+          delimiter = ",";
+        }
+        const parsed = Papa.parse(text, {
+          delimiter: delimiter,
+        });
+        const data = parsed.data;
+        console.log(parsed);
         const balans = {
           name: name,
-          title: lines[0].trim(),
-          organisation_name: lines[1].trim(),
-          organisation_number: lines[2].trim(),
+          title: data[0][0].trim(),
+          organisation_name: data[1][0].trim(),
+          organisation_number: data[2][0].trim(),
           items: [],
         };
 
@@ -42,10 +50,10 @@
         const items = balans.items;
         let item = {};
 
-        for (let i = 3; i < lines.length; i++) {
-          const line = lines[i];
+        for (let i = 3; i < data.length; i++) {
+          const row = data[i];
           if (state === "GET_PERIOD") {
-            const period = line.match(
+            const period = row[0].match(
               /^Avser perioden (\d\d\d\d-\d\d-\d\d)\s+-\s+(\d\d\d\d-\d\d-\d\d)\s*$/
             );
             if (period !== null) {
@@ -57,20 +65,17 @@
               console.log("GET_PERIOD", item);
             }
           } else if (state === "GET_RESULTATENHET") {
-            const resultatenhet = line.match(/^Resultatenhet:\s+(.+)\s*$/);
+            const resultatenhet = row[0].match(/^Resultatenhet:\s+(.+)\s*$/);
             if (resultatenhet !== null) {
               item.resultatenhet = resultatenhet[1];
               console.log("GET_RESULTATENHET", resultatenhet[1]);
               state = "GET_RESULTAT";
             }
           } else if (state === "GET_RESULTAT") {
-            const resultat = line.match(
-              /^BERÄKNAT RESULTAT;([^;]*);([^;]*);([^;]*);\s*$/
-            );
-            if (resultat !== null) {
-              const start = resultat[1];
-              const change = resultat[2];
-              const end = resultat[3];
+            if (row[0] === "BERÄKNAT RESULTAT") {
+              const start = row[1];
+              const change = row[2];
+              const end = row[3];
               item.resultat = {
                 start: start,
                 change: change,
@@ -88,9 +93,7 @@
       }
 
       function calculate_projektresultat(name, text, lines) {
-        const parsed = Papa.parse(text, {
-          delimiter: ";",
-        });
+        const parsed = Papa.parse(text);
         const data = parsed.data;
         console.log(parsed);
         const projektresultat = {
@@ -153,26 +156,28 @@
       }
 
       function calculate_verifikation(name, text, lines) {
+        const parsed = Papa.parse(text);
+        const data = parsed.data;
+        console.log(parsed);
         const verifikation = {
           name: name,
-          title: lines[0].match(/^"""(.+)"""[,\s]*$/)[1],
-          organisation_name: lines[1].match(/^(.+)[,\s]+$/)[1],
-          organisation_number: lines[2].match(/^(.+)[,\s]+$/)[1],
-          lines: [],
+          title: data[0][0],
+          organisation_name: data[1][0],
+          organisation_number: data[2][0],
+          rows: [],
         };
 
-        console.log("lines", lines);
-        for (let i = 3; i < lines.length; i++) {
-          const line = lines[i];
-          const period = line.match(
-            /^"""Avser perioden"" (\d\d\d\d-\d\d-\d\d)\s+-\s+(\d\d\d\d-\d\d-\d\d)"[,\s]*$/
+        for (let i = 3; i < data.length; i++) {
+          const row = data[i];
+          const period = row[0].match(
+            /^"Avser perioden" (\d\d\d\d-\d\d-\d\d)\s+-\s+(\d\d\d\d-\d\d-\d\d)$/
           );
           if (period !== null) {
             verifikation.period = {
               start: period[1],
               end: period[2],
             };
-            verifikation.lines = lines.slice(i);
+            verifikation.rows = data.slice(i);
             console.log("Returning verifikation", i, verifikation);
             return verifikation;
           }
@@ -275,12 +280,15 @@
       function verifikation_to_csv(verifikation) {
         const csv_verifikation = {
           filename: `${verifikation_base_filename(verifikation)}.csv`,
-          rows: verifikation.lines,
+          rows: verifikation.rows,
         };
 
-        csv_verifikation.blob = new Blob(csv_verifikation.rows, {
-          type: "text/csv",
-        });
+        csv_verifikation.blob = new Blob(
+          [Papa.unparse(csv_verifikation.rows)],
+          {
+            type: "text/csv",
+          }
+        );
 
         return csv_verifikation;
       }
@@ -475,7 +483,7 @@
             </li>
             <li>Resultatenhet: Välj alla.</li>
             <li>Projekt: Gör inget val.</li>
-            <li>Skapa csv (Excel)</li>
+            <li>Skapa csv (Excel eller Google Kalkylark)</li>
           </ol>
         </li>
         <li>
@@ -486,7 +494,7 @@
               dagens datum.
             </li>
             <li>Projekt: Välj alla.</li>
-            <li>Skapa csv (Excel)</li>
+            <li>Skapa csv (Excel eller Google Kalkylark)</li>
           </ol>
         </li>
         <li>
@@ -497,7 +505,7 @@
               dagens datum.
             </li>
             <li>Projekt: Gör inget val.</li>
-            <li>Skapa csv (Google Kalkylark)</li>
+            <li>Skapa csv (Excel eller Google Kalkylark)</li>
           </ol>
         </li>
       </ul>
