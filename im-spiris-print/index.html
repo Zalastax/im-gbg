@@ -28,13 +28,22 @@
         return "okänd filtyp";
       }
 
-      function calculate_balans(name, text, lines) {
-        let delimiter = ";";
-        if (text.includes("SUMMA TILLGÅNGAR,")) {
-          delimiter = ",";
+      function find_delimiter(input, rest) {
+        // Determines delimiter by checking whether , or ; is most common.
+        // It's not a perfect solution but works well in practice.
+
+        const comma_count = (input.match(/,/g) || []).length;
+        const semicolon_count = (input.match(/;/g) || []).length;
+        if (semicolon_count > comma_count) {
+          return ";";
         }
+
+        return ",";
+      }
+
+      function calculate_balans(name, text, lines) {
         const parsed = Papa.parse(text, {
-          delimiter: delimiter,
+          delimiter: find_delimiter,
         });
         const data = parsed.data;
         console.log(parsed);
@@ -93,7 +102,9 @@
       }
 
       function calculate_projektresultat(name, text, lines) {
-        const parsed = Papa.parse(text);
+        const parsed = Papa.parse(text, {
+          delimiter: find_delimiter,
+        });
         const data = parsed.data;
         console.log(parsed);
         const projektresultat = {
@@ -156,7 +167,9 @@
       }
 
       function calculate_verifikation(name, text, lines) {
-        const parsed = Papa.parse(text);
+        const parsed = Papa.parse(text, {
+          delimiter: find_delimiter,
+        });
         const data = parsed.data;
         console.log(parsed);
         const verifikation = {
