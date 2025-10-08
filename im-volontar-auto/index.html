@@ -84,6 +84,15 @@
 
       function writeResults() {
         window.auto_todo_list = [];
+
+        for (let volontar of window.parsed_volontarlista.data) {
+          volontar.verksamheter_status = {
+            ja: [],
+            kanske: [],
+            nej: [],
+          };
+        }
+
         for (let mail_group of window.mail_groups) {
           const header_field = mail_group.volontarlista_header;
           const ja = (mail_group.from_volontarlista.ja = []);
@@ -94,18 +103,19 @@
             const include_volontar = window.status_map[status];
             if (include_volontar === "ja") {
               ja.push(volontar);
+              volontar.verksamheter_status.ja.push(
+                mail_group.volontarlista_header
+              );
             } else if (include_volontar === "kanske") {
               kanske.push(volontar);
-              window.auto_todo_list.push(
-                createHighlight(
-                  header_field,
-                  volontar.Mail.toLowerCase(),
-                  volontar.Namn,
-                  "Intresserad av att bli volontär. Följ upp och kontakta dem igen om ingen kontakt nyligen."
-                )
+              volontar.verksamheter_status.kanske.push(
+                mail_group.volontarlista_header
               );
             } else if (include_volontar === "nej") {
               nej.push(volontar);
+              volontar.verksamheter_status.nej.push(
+                mail_group.volontarlista_header
+              );
             }
           }
 
@@ -177,10 +187,23 @@
           ) {
             window.auto_todo_list.push(
               createHighlight(
-                "",
+                volontar.verksamheter_status.ja.join(" / "),
                 volontar.Mail.toLowerCase(),
                 volontar.Namn,
                 "Registerutdrag krävs men det saknas / är för gammalt. Be om nytt registerutdrag."
+              )
+            );
+          }
+
+          const kanske_list = volontar.verksamheter_status.kanske;
+          if (kanske_list.length > 0) {
+            const kanske_joined = kanske_list.join(" / ");
+            window.auto_todo_list.push(
+              createHighlight(
+                kanske_joined,
+                volontar.Mail.toLowerCase(),
+                volontar.Namn,
+                `Intresserad av att bli volontär i ${kanske_joined}. Följ upp och kontakta dem igen om ingen kontakt nyligen.`
               )
             );
           }
