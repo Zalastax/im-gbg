@@ -41,6 +41,10 @@
         return ",";
       }
 
+      function strToFloatCommaDec(str) {
+        return parseFloat(str.replace(',','.').replace(' ',''))
+      }
+
       function calculate_balans(name, text, lines) {
         const parsed = Papa.parse(text, {
           delimiter: find_delimiter,
@@ -53,9 +57,15 @@
           organisation_name: data[1][0].trim(),
           organisation_number: data[2][0].trim(),
           items: [],
+          total: {
+            start: 0,
+            change: 0,
+            end: 0
+          }
         };
 
         let state = "GET_PERIOD";
+        const total = balans.total;
         const items = balans.items;
         let item = {};
 
@@ -83,8 +93,11 @@
           } else if (state === "GET_RESULTAT") {
             if (row[0] === "BERÄKNAT RESULTAT") {
               const start = row[1];
+              total.start += strToFloatCommaDec(start)
               const change = row[2];
+              total.change += strToFloatCommaDec(change)
               const end = row[3];
+              total.end += strToFloatCommaDec(end)
               item.resultat = {
                 start: start,
                 change: change,
@@ -113,9 +126,15 @@
           organisation_name: data[1][0].trim(),
           organisation_number: data[2][0].trim(),
           items: [],
+          total: {
+            for_period: 0,
+            accumulated: 0,
+            accumulated_from_period_start: 0
+          }
         };
 
         let state = "GET_PERIOD";
+        const total = projektresultat.total;
         const items = projektresultat.items;
         let item = {};
 
@@ -146,8 +165,11 @@
           } else if (state === "GET_RESULTAT") {
             if (row[0] === "BERÄKNAT RESULTAT") {
               const for_period = row[1];
+              total.for_period += strToFloatCommaDec(for_period)
               const accumulated = row[2];
+              total.accumulated += strToFloatCommaDec(accumulated)
               const accumulated_from_period_start = row[3];
+              total.accumulated_from_period_start += strToFloatCommaDec(accumulated_from_period_start)
               item.resultat = {
                 for_period: for_period,
                 accumulated: accumulated,
@@ -318,13 +340,18 @@
         console.log("balans", balans);
         console.log("csv", csv_balans);
 
+        const p = document.createElement("p")
+        const br = document.createElement("br")
         const url = URL.createObjectURL(csv_balans.blob);
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = csv_balans.filename;
         anchor.innerText = csv_balans.filename;
+        p.append(anchor)
+        p.append(br)
+        p.append(`Början: ${balans.total.start}. Ändring: ${balans.total.change}. Slut: ${balans.total.end}.`)
 
-        return anchor;
+        return p;
       }
 
       function create_resultat_elem(name, text, lines) {
@@ -336,13 +363,22 @@
         const projektresultat = calculate_projektresultat(name, text, lines);
         const csv_projektresultat = projektresultat_to_csv(projektresultat);
 
+        console.log("projektresultat", projektresultat);
+        console.log("csv", csv_projektresultat);
+
+        const p = document.createElement("p")
+        const br = document.createElement("br")
         const url = URL.createObjectURL(csv_projektresultat.blob);
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = csv_projektresultat.filename;
         anchor.innerText = csv_projektresultat.filename;
 
-        return anchor;
+        p.append(anchor)
+        p.append(br)
+        p.append(`För perioden: ${projektresultat.total.for_period}. För året: ${projektresultat.total.accumulated}.`)
+
+        return p;
       }
 
       function create_verifikation_elem(name, text, lines) {
