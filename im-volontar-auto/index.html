@@ -42,8 +42,6 @@
         createMailGroup("imgbg_styrelsen", "Styrelsen"),
       ];
       window.auto_todo_list = [];
-      window.volontarlista_url =
-        "https://docs.google.com/spreadsheets/d/1XelCnAr8-BhZ-ul1tbcmp3tvpEu7yUX15VcpdUv6VQo/edit?usp=sharing";
       window.volontar_arbetsblad = "Volontärer";
       window.status_map = {
         aktiv: "ja",
@@ -433,25 +431,18 @@
         <strong id="volontarlista_status" class="is-not-ok">saknas</strong>.
       </p>
       <p id="volontarlista_instruktioner">
-        Gå till
-        <a
-          >Volontärlistan i Google Drive
-          <script>
-            me().href = window.volontarlista_url;
-          </script></a
-        >
+        Gå till dokumentet "Volontärlista"  i Google Drive
         och till fliken
-        <span
-          ><script>
+        <span>
+          <script>
             me().innerText = window.volontar_arbetsblad;
-          </script></span
-        >. Välj Arkiv > Ladda ned > Kommaavgränsade värden (.csv).<br />
-        Lägg in filen här ovan. Filens namn slutar på
-        <span
-          ><script>
+          </script></span>.<br />
+          Välj Arkiv > Ladda ned > Kommaavgränsade värden (.csv).<br />
+          Lägg in filen här ovan.<br />
+          Filens namn slutar på:
+          <span style="font-style:italic"><script>
             me().innerText = ` - ${window.volontar_arbetsblad}.csv`;
-          </script></span
-        >
+          </script></span>
       </p>
       <h2>Medlemslistor</h2>
       <p>Vilka medlemslistor är importerade?</p>
