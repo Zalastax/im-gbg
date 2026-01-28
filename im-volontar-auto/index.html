@@ -240,7 +240,16 @@
           }
 
           const kanske_list = volontar.verksamheter_status.kanske;
-          if (kanske_list.length > 0) {
+          let contact_cooldown = false;
+          const update_date = new Date(volontar["Senast ändrad"])
+          if (update_date.toString() !== "Invalid Date") {
+            const diff_in_days = Math.floor((now - update_date) / 86400000);
+            if (diff_in_days < 30) {
+              contact_cooldown = true
+            }
+          }
+
+          if (kanske_list.length > 0 && !contact_cooldown) {
             const kanske_joined = kanske_list.join(" / ");
             window.auto_todo_list.push(
               createHighlight(
