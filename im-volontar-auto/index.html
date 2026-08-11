@@ -175,12 +175,12 @@
 
             if (!matched) {
               let fel_fix =
-                "Finns i mejlgruppen men ej i volontärlistan. Ta bort från mejlgruppen.";
+                "Finns i mejlgruppen men ej i volontärlistan. Ta bort från mejlgruppen eller lägg till i volontärlistan.";
               for (let nej_volontar of nej) {
                 const volontar_email = nej_volontar.Mail.toLowerCase();
 
                 if (volontar_email.includes(email)) {
-                  fel_fix = `Finns i mejlgruppen men status i volontärlistan är "${nej_volontar[header_field]}". Ta bort från mejlgruppen.`;
+                  fel_fix = `Finns i mejlgruppen men status i volontärlistan är "${nej_volontar[header_field]}". Ta bort från mejlgruppen eller ändra status.`;
                   break;
                 }
               }
