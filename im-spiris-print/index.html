@@ -188,13 +188,13 @@
         return projektresultat;
       }
 
-      function calculate_verifikation(name, text, lines) {
+      function calculate_verifikationslista(name, text, lines) {
         const parsed = Papa.parse(text, {
           delimiter: find_delimiter,
         });
         const data = parsed.data;
         console.log(parsed);
-        const verifikation = {
+        const verifikationslista = {
           name: name,
           title: data[0][0],
           organisation_name: data[1][0],
@@ -208,17 +208,81 @@
             /^"Avser perioden" (\d\d\d\d-\d\d-\d\d)\s+-\s+(\d\d\d\d-\d\d-\d\d)$/
           );
           if (period !== null) {
-            verifikation.period = {
+            verifikationslista.period = {
               start: period[1],
               end: period[2],
             };
-            verifikation.rows = data.slice(i);
-            console.log("Returning verifikation", i, verifikation);
-            return verifikation;
+            verifikationslista.rows = data.slice(i);
+            console.log("Returning verifikationslista", i, verifikationslista);
+            return verifikationslista
           }
         }
 
-        return verifikation;
+        return verifikationslista;
+      }
+
+      function new_verifikation_project(namn) {
+        return {
+                debet: 0,
+                kredit: 0,
+                summa: 0,
+                namn: namn
+              }
+      }
+
+      function structure_verifikationer(verifikationslista) {
+        const verifikationer = []
+
+        let projects = {}
+        let verifikation = {
+          projects: projects
+        }
+        const empty_row = ["", "", "", "", "", "", "", ""]
+        for (let i = 2; i < verifikationslista.rows.length; i++) {
+          const row = verifikationslista.rows[i]
+          // Empty row signals new verifikation
+          if (JSON.stringify(row) === JSON.stringify(empty_row)) {
+            if (verifikation.verifikationsnummer) {
+              verifikationer.push(verifikation)
+            }
+            projects = {}
+            verifikation = {projects: projects}
+          }
+          else if (row[0]) {
+            verifikation.verifikationsnummer = row[0]
+            verifikation.datum = row[1]
+            verifikation.beskrivning = row[2]
+          } else if (row.length >= 8) {
+              const projekt_namn = row[4]
+              const project = projects[projekt_namn] || new_verifikation_project(projekt_namn)
+              const debet = parseFloat(row[6].replace(/,/, '.'))
+              const kredit = parseFloat(row[7].replace(/,/, '.'))
+              if (!isNaN(debet)) {
+                project.debet += debet
+              }
+              if (!isNaN(kredit)) {
+                project.kredit += kredit
+              }
+              project.summa = project.debet - project.kredit
+              projects[projekt_namn] = project
+            }
+          }
+          return verifikationer;
+      }
+
+      function find_verifikationer_anomalies(verifikationer) {
+        const anomalies = []
+
+        for (let verifikation of verifikationer) {
+          for (let project_key in verifikation.projects) {
+            const project = verifikation.projects[project_key]
+            if (project.summa == 0) {
+              anomalies.push(`Kontrollera verifikation ${verifikation.verifikationsnummer}. Projekt: "${project.namn}", debet - kredit: ${project.debet} - ${project.kredit} = 0. Ska oftast inte bli 0.`)
+            }
+          }
+        }
+
+        return anomalies
       }
 
       function balans_base_filename(balans) {
@@ -387,8 +451,9 @@
           p.innerText = `För få rader (${lines} rader) i verifikationslistan ${name}.`;
           return p;
         }
-        const verifikation = calculate_verifikation(name, text, lines);
-        const csv_verifikation = verifikation_to_csv(verifikation);
+        const verifikationslista = calculate_verifikationslista(name, text, lines);
+        const anomalies = find_verifikationer_anomalies(structure_verifikationer(verifikationslista));
+        const csv_verifikation = verifikation_to_csv(verifikationslista);
 
         const url = URL.createObjectURL(csv_verifikation.blob);
         const anchor = document.createElement("a");
@@ -396,7 +461,27 @@
         anchor.download = csv_verifikation.filename;
         anchor.innerText = csv_verifikation.filename;
 
-        return anchor;
+        const div = document.createElement("div");
+        div.appendChild(anchor);
+
+        if (anomalies.length > 0) {
+          const varningar = document.createElement("p");
+          varningar.innerText = "Varningar:"
+          div.appendChild(varningar)
+
+          const ul = document.createElement("ul");
+          div.appendChild(ul)
+
+
+          for (let anomaly of anomalies) {
+            const li = document.createElement("li");
+            li.innerText = anomaly
+            ul.appendChild(li)
+          }
+
+        }
+        
+        return div;
       }
 
       async function add_files(files) {
